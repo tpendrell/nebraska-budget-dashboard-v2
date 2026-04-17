@@ -1063,6 +1063,7 @@ def push_to_sheet(dashboard_json, sheet_id=None):
     """
     output_path = 'dashboard_data.json'
     with open(output_path, 'w') as f:
+        # Keep the local file nicely formatted for human reading
         json.dump(dashboard_json, f, indent=2, default=str)
 
     print(f"\n✅ Dashboard JSON written to: {output_path}")
@@ -1078,21 +1079,30 @@ def push_to_sheet(dashboard_json, sheet_id=None):
             from google.oauth2 import service_account
             from googleapiclient.discovery import build
 
-            # 1. Authenticate using the credentials.json your Action generates
             SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
             creds = service_account.Credentials.from_service_account_file(
                 'credentials.json', scopes=SCOPES)
 
-            # 2. Build the Sheets service
             service = build('sheets', 'v4', credentials=creds)
 
-            # 3. Convert the dict to a string format for the sheet cell
-            json_string = json.dumps(dashboard_json, indent=2, default=str)
+            # 1. Minify the JSON to save massive amounts of space (removes indenting/spaces)
+            json_string = json.dumps(dashboard_json, separators=(',', ':'), default=str)
 
-            # 4. Push the string into cell A1 of 'Sheet1'
-            # (Update 'Sheet1' if your tab is named something else!)
-            body = {'values': [[json_string]]}
+            # 2. Chop the string into chunks of 40,000 characters to bypass the 50k limit
+            chunk_size = 40000
+            chunks = [json_string[i:i+chunk_size] for i in range(0, len(json_string), chunk_size)]
+            
+            # 3. Format as rows for Column A: [[chunk1], [chunk2], [chunk3]...]
+            values = [[chunk] for chunk in chunks]
 
+            # 4. Clear the sheet first to remove any old trailing chunks
+            service.spreadsheets().values().clear(
+                spreadsheetId=sheet_id, 
+                range='Sheet1'
+            ).execute()
+
+            # 5. Push the new chunks into the sheet starting at A1
+            body = {'values': values}
             result = service.spreadsheets().values().update(
                 spreadsheetId=sheet_id,
                 range='Sheet1!A1',
@@ -1100,7 +1110,7 @@ def push_to_sheet(dashboard_json, sheet_id=None):
                 body=body
             ).execute()
 
-            print(f"  ✅ Successfully updated {result.get('updatedCells')} cells.")
+            print(f"  ✅ Successfully updated {result.get('updatedCells')} cells with data chunks.")
 
         except ImportError:
             print("  ❌ Missing Google API libraries. Run: pip install google-api-python-client google-auth")
