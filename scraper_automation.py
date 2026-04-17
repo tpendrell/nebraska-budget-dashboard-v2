@@ -28,8 +28,6 @@ REVENUE_RELEASE_URL = (
 
 GF_STATUS_URL = "https://nebraskalegislature.gov/FloorDocs/Current/PDF/Budget/status.pdf"
 LEG_BUDGET_URL_TEMPLATE = "https://nebraskalegislature.gov/pdf/reports/fiscal/{year}budget.pdf"
-LFO_DIRECTORY_VOL1_URL = "https://nebraskalegislature.gov/pdf/reports/fiscal/funddescriptions1_{year}.pdf"
-LFO_DIRECTORY_VOL2_URL = "https://nebraskalegislature.gov/pdf/reports/fiscal/funddescriptions2_{year}.pdf"
 
 
 def download_file(url, dest_path):
@@ -96,13 +94,15 @@ def fetch_biennial_budget(year, work_dir):
     return path if download_file(url, path) else None
 
 
-def fetch_lfo_directory(year, work_dir):
+def fetch_lfo_directory(work_dir):
     paths = []
-    for template, name in [(LFO_DIRECTORY_VOL1_URL, "vol1"), (LFO_DIRECTORY_VOL2_URL, "vol2")]:
-        url = template.format(year=year)
-        path = os.path.join(work_dir, f"lfo_{name}_{year}.pdf")
-        if download_file(url, path):
-            paths.append(path)
+    # Searches both 2023 and 2025 to guarantee we get the LFO fund descriptions
+    for year in [2023, 2025]:
+        for vol in ["1", "2"]:
+            url = f"https://nebraskalegislature.gov/pdf/reports/fiscal/funddescriptions{vol}_{year}.pdf"
+            path = os.path.join(work_dir, f"lfo_{vol}_{year}.pdf")
+            if download_file(url, path):
+                paths.append(path)
     return paths
 
 
@@ -132,7 +132,7 @@ def parse_oip_for_dashboard(xlsx_path):
         funds.append(
             {
                 "id": str(int(row[1])),
-                "title": str(row[3]) if row[3] else f"Fund {row[1]}",
+                "title": row[3],
                 "balance": bal,
                 "interest": interest,
             }
@@ -165,29 +165,32 @@ def parse_gf_status_pdf(pdf_path):
 
         res = {}
         
-        # Helper function: Finds the pattern, then grabs the FIRST number with 4+ digits
-        # This prevents the parser from accidentally grabbing "26" from "FY25-26"
-        def get_big_num(pattern):
-            matches = re.findall(pattern + r'.*?([\d,]{4,})', text, re.IGNORECASE)
-            if matches:
-                return int(matches[0].replace(',', ''))
-            return 0
+        # Parse line-by-line to prevent grabbing dates as numbers
+        for line in text.split("\n"):
+            clean_line = line.strip()
+            
+            # Find all numbers with 4+ digits, or negative numbers in parentheses
+            nums = re.findall(r'(\([\d,]{4,}\)|[\d,]{4,})', clean_line)
+            
+            if len(nums) >= 2:
+                # Target the 2nd big number (the FY25-26 column)
+                val_str = nums[1].replace(",", "")
+                val = -int(val_str.strip("()")) if "(" in val_str else int(val_str)
+                
+                if "Beginning Balance" in clean_line and "FY" not in clean_line:
+                    res["beginningBalance_FY2526"] = val
+                elif "Net Receipts" in clean_line and "Total" not in clean_line:
+                    res["netRevenues_FY2526"] = val
+                elif "Total Appropriations" in clean_line:
+                    res["appropriations_FY2526"] = val
+                elif "Projected Ending Balance" in clean_line or ("Ending Balance" in clean_line and "Projected" in clean_line):
+                    res["endingBalance_FY2526"] = val
+                elif "Variance from Minimum Reserve" in clean_line:
+                    res["minimumReserve_variance"] = val
+                elif "Cash Reserve Fund" in clean_line and "Balance" in clean_line:
+                    res["cashReserve_endingBalance"] = val
 
-        res["netRevenues_FY2526"] = get_big_num(r"Net Receipts")
-        res["appropriations_FY2526"] = get_big_num(r"Total Appropriations")
-        res["beginningBalance_FY2526"] = get_big_num(r"Beginning Balance")
-        res["endingBalance_FY2526"] = get_big_num(r"Ending balance")
-        res["cashReserve_endingBalance"] = get_big_num(r"Cash Reserve Fund.*?Balance")
-
-        # Variance checks for parentheses to represent negative numbers
-        var_match = re.search(r"Variance from 3%.*?([\d,()]{4,})", text, re.IGNORECASE)
-        if var_match:
-            val = var_match.group(1).replace(",", "")
-            res["minimumReserve_variance"] = -int(val.replace("(", "").replace(")", "")) if "(" in val else int(val)
-        else:
-            res["minimumReserve_variance"] = 0
-
-        # Constructing the table array to satisfy the React frontend warning
+        # Construct the table array to satisfy the React frontend warning
         table = [
             {"label": "Beginning Balance", "fy2425": 0, "fy2526": res.get("beginningBalance_FY2526", 0), "fy2627": 0, "fy2728": 0, "fy2829": 0},
             {"label": "Net Receipts", "fy2425": 0, "fy2526": res.get("netRevenues_FY2526", 0), "fy2627": 0, "fy2728": 0, "fy2829": 0},
@@ -237,15 +240,10 @@ def parse_biennial_budget_agencies(pdf_path):
 def parse_lfo_directory(pdf_paths):
     import subprocess
 
-    # Failsafe core definitions to ensure major funds never display as "GENERAL CASH"
-    descriptions = {
-        "10000": {"title": "General Fund", "description": "The primary operating fund of the State.", "statutory_authority": "Neb. Rev. Stat. §77-2715"},
-        "11000": {"title": "Cash Reserve Fund", "description": "The State's 'Rainy Day' Fund.", "statutory_authority": "Neb. Rev. Stat. §84-612"},
-        "22970": {"title": "Property Tax Credit Fund", "description": "Funds property tax relief.", "statutory_authority": "Neb. Rev. Stat. §77-4210"}
-    }
-
     if not pdf_paths:
-        return descriptions
+        return {}
+
+    descriptions = {}
 
     for path in pdf_paths:
         try:
@@ -256,8 +254,7 @@ def parse_lfo_directory(pdf_paths):
             ).stdout
 
             for page in text.split("\f"):
-                # Case insensitive match for Fund ID
-                fund_m = re.search(r"FUND\s+(\d{5}):\s+(.+?)(?:\n|$)", page, re.IGNORECASE)
+                fund_m = re.search(r"FUND\s+(\d{5}):\s+(.+?)(?:\n|$)", page)
                 if fund_m:
                     fid = fund_m.group(1)
                     desc_m = re.search(
@@ -271,13 +268,11 @@ def parse_lfo_directory(pdf_paths):
                         re.S,
                     )
 
-                    # Only overwrite if it's not one of our hardcoded failsafes
-                    if fid not in ["10000", "11000", "22970"]:
-                        descriptions[fid] = {
-                            "title": fund_m.group(2).strip(),
-                            "description": re.sub(r"\s+", " ", desc_m.group(1)).strip() if desc_m else "",
-                            "statutory_authority": re.sub(r"\s+", " ", stat_m.group(1)).strip() if stat_m else "",
-                        }
+                    descriptions[fid] = {
+                        "title": fund_m.group(2).strip(),
+                        "description": re.sub(r"\s+", " ", desc_m.group(1)).strip() if desc_m else "",
+                        "statutory_authority": re.sub(r"\s+", " ", stat_m.group(1)).strip() if stat_m else "",
+                    }
         except Exception:
             continue
 
@@ -351,7 +346,7 @@ def main():
 
     status_path = fetch_gf_status(work_dir)
     budget_path = fetch_biennial_budget(budget_year, work_dir)
-    lfo_paths = fetch_lfo_directory(budget_year, work_dir)
+    lfo_paths = fetch_lfo_directory(work_dir)
 
     print("Step 3: Parsing Data...")
     oip_data = parse_oip_for_dashboard(oip_path) if oip_path else {"funds": [], "macro": {}}
