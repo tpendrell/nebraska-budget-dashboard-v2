@@ -10,7 +10,7 @@ on:
   schedule:
     # Run at 10:00 AM CT (16:00 UTC) on the 18th of every month
     # DAS publishes OIP reports ~15th of the month for the prior month
-    - cron: '0 16 18 * *'
+    - cron: '0 16 1 * *'
   workflow_dispatch:
     inputs:
       target_month:
