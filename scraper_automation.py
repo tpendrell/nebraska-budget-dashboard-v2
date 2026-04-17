@@ -1059,34 +1059,53 @@ def build_dashboard_json(oip_data, revenue_data, fund_titles, gf_status=None,
 
 def push_to_sheet(dashboard_json, sheet_id=None):
     """
-    Write dashboard JSON to Google Sheets.
-
-    For the Google Apps Script API to serve this data, the sheet should store
-    the JSON as a single cell value or in a structured key-value layout.
-
-    In production, use the Google Sheets API (v4) with a service account:
-      pip install google-api-python-client google-auth
-      credentials.json should be stored as a GitHub Secret.
-
-    For now, this writes the JSON to a local file that can be manually
-    pasted into the Google Sheet or uploaded via the API.
+    Write dashboard JSON to a local file, and optionally push to Google Sheets.
     """
     output_path = 'dashboard_data.json'
     with open(output_path, 'w') as f:
         json.dump(dashboard_json, f, indent=2, default=str)
+
     print(f"\n✅ Dashboard JSON written to: {output_path}")
     print(f"   Total funds: {len(dashboard_json.get('funds', []))}")
-    print(f"   Total balance: ${dashboard_json['macro']['totalBalance']:,.2f}")
+    print(f"   Total balance: ${dashboard_json['macro'].get('totalBalance', 0):,.2f}")
     print(f"   Revenue data: {'✅ Included' if dashboard_json.get('revenue', {}).get('ytdActual') else '⚠️ Not available'}")
     print(f"   Agency data: {len(dashboard_json.get('agencies', []))} agencies (from biennial budget)")
     print(f"   Fund descriptions: {len(dashboard_json.get('fundDescriptions', {}))} (from LFO Directory)")
 
     if sheet_id:
-        print(f"\n📊 To push to Google Sheet {sheet_id}:")
-        print(f"   1. Set up a service account with Sheets API access")
-        print(f"   2. Share the sheet with the service account email")
-        print(f"   3. Use sheets.spreadsheets.values.update() to write the JSON")
-        print(f"   (See Google Sheets API quickstart for Python)")
+        print(f"\n📊 Pushing data to Google Sheet {sheet_id}...")
+        try:
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
+
+            # 1. Authenticate using the credentials.json your Action generates
+            SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+            creds = service_account.Credentials.from_service_account_file(
+                'credentials.json', scopes=SCOPES)
+
+            # 2. Build the Sheets service
+            service = build('sheets', 'v4', credentials=creds)
+
+            # 3. Convert the dict to a string format for the sheet cell
+            json_string = json.dumps(dashboard_json, indent=2, default=str)
+
+            # 4. Push the string into cell A1 of 'Sheet1'
+            # (Update 'Sheet1' if your tab is named something else!)
+            body = {'values': [[json_string]]}
+
+            result = service.spreadsheets().values().update(
+                spreadsheetId=sheet_id,
+                range='Sheet1!A1',
+                valueInputOption='RAW',
+                body=body
+            ).execute()
+
+            print(f"  ✅ Successfully updated {result.get('updatedCells')} cells.")
+
+        except ImportError:
+            print("  ❌ Missing Google API libraries. Run: pip install google-api-python-client google-auth")
+        except Exception as e:
+            print(f"  ❌ Failed to update Google Sheet: {e}")
 
     return output_path
 
