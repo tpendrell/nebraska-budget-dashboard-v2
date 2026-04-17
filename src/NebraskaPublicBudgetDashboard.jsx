@@ -169,9 +169,8 @@ function WaterfallChart({ beginBal, revenues, transfers, appropriations, endBal 
   // Convert to billions for Y axis
   const data = chartData.map((d) => ({ ...d, base: d.base / 1e9, value: d.value / 1e9 }));
 
-  // 3% minimum reserve line
-  const minReserve = (endBal + Math.abs(rawData.generalFundStatus.minimumReserve_variance)) / 1e9;
-
+  const minReserve = (endBal + Math.abs(data.generalFundStatus.minimumReserve_variance)) / 1e9;
+  
   return (
     <div style={{ height: 280 }}>
       <ResponsiveContainer width="100%" height="100%">
