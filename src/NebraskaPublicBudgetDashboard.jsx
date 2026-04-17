@@ -38,7 +38,7 @@ const TABS = [
 const NE_POP = 1970000;
 
 // Your Google Apps Script URL
-const DATA_URL = 'https://script.google.com/macros/s/AKfycbwGonKHfxCdxrxc4jTckIp00V3ZmqK6LlDhUDLcyIHEwTLadOeR80OOLwTMKlrFDBN7/exec';
+const DATA_URL = 'https://script.google.com/macros/s/AKfycbyyu3434Z9flpBmaCxjEYij2V2ilmJCwmw9nEPtpRavjuA3JVWeP3I28YBzOa8k7oD5/exec';
 
 /* ═══════════════════ FORMATTERS ═══════════════════ */
 
