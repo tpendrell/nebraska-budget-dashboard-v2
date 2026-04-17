@@ -527,7 +527,7 @@ export default function NebraskaBudgetDashboard() {
     const fetchData = async () => {
       try {
         // PASTE YOUR GOOGLE APPS SCRIPT WEB APP URL HERE:
-        const response = await fetch('https://script.google.com/macros/s/AKfycbzFrdyi8OkoSIC2zDrmIqHzbuWOL4zwUN9SXDE6_Leg4JnNcu5Wmi3qqFdkTC-GWIhP/exec');
+        const response = await fetch('https://script.google.com/macros/s/AKfycbxdhapah1CYnlo6GBH3vpstAxJx8JRzxenkDc45t_4qa5W306HY1m_Ft841nwHJs_x1/exec');
         
         if (!response.ok) throw new Error('Failed to fetch budget data');
         
