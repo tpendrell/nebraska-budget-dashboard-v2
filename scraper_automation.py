@@ -318,6 +318,7 @@ def parse_revenue_pdf(pdf_path, fallback_total):
 
 def parse_biennial_budget_agencies(pdf_path):
     import subprocess
+    import re
 
     if not pdf_path:
         return []
@@ -329,24 +330,62 @@ def parse_biennial_budget_agencies(pdf_path):
             text=True,
         ).stdout
 
-        agencies = []
-        pattern = re.compile(
-            r"^\s*#(\d{2,3})\s+([A-Za-z\s&,./\-]+?)\s+(?:Oper|Aid|Const|Total)\s+([\d,()]+)",
-            re.M,
-        )
+        # Split the text so we don't mix General Funds (Table 12) with Cash Funds (Table 19)
+        gf_start = text.find('Table 12')
+        cf_start = text.find('Table 19')
+        if gf_start == -1: gf_start = text.find('General Fund Appropriation Adjustments')
+        if cf_start == -1: cf_start = text.find('Cash Fund Appropriation Adjustments')
 
-        for match in pattern.finditer(text):
-            val = int(match.group(3).replace(",", "").replace("(", "-").replace(")", ""))
-            agencies.append(
-                {
-                    "id": match.group(1),
-                    "name": match.group(2).strip(),
-                    "appropriation": val,
-                }
+        gf_text = text[gf_start:cf_start] if gf_start != -1 and cf_start != -1 else text
+        cf_text = text[cf_start:] if cf_start != -1 else ""
+
+        def extract_agencies(section_text):
+            agencies = {}
+            # Captures ID, Name, Row Type (Oper/Aid/Const/Total), and the dollar amount
+            pattern = re.compile(
+                r"^\s*#(\d{2,3})\s+([A-Za-z\s&,./\-]+?)\s+(Oper|Aid|Const|Total)\s+([\d,()]+)",
+                re.M,
             )
+            for match in pattern.finditer(section_text):
+                row_type = match.group(3)
+                
+                # CRITICAL FIX: Skip the 'Total' row so we don't double count!
+                if row_type == "Total":
+                    continue 
 
-        return agencies
-    except Exception:
+                aid = match.group(1)
+                name = match.group(2).strip()
+                val_str = match.group(4).replace(",", "").replace("(", "-").replace(")", "")
+                val = int(val_str)
+
+                if aid not in agencies:
+                    agencies[aid] = {"id": aid, "name": name, "amount": 0}
+                agencies[aid]["amount"] += val
+                
+            return agencies
+
+        gf_dict = extract_agencies(gf_text)
+        cf_dict = extract_agencies(cf_text)
+
+        # Merge the GF and CF dictionaries into the final array
+        final_agencies = []
+        all_ids = set(gf_dict.keys()).union(set(cf_dict.keys()))
+        
+        for aid in all_ids:
+            name = gf_dict.get(aid, {}).get("name") or cf_dict.get(aid, {}).get("name", f"Agency {aid}")
+            gf_amt = gf_dict.get(aid, {}).get("amount", 0)
+            cf_amt = cf_dict.get(aid, {}).get("amount", 0)
+            
+            final_agencies.append({
+                "id": aid,
+                "name": name,
+                "appropriation": gf_amt,   # This maps to the GF blue bar
+                "cash_fund": cf_amt        # This maps to the CF gold bar
+            })
+
+        return final_agencies
+    except Exception as e:
+        print(f"Agency Parse Error: {e}")
         return []
 
 
