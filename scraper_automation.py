@@ -1,74 +1,191 @@
 #!/usr/bin/env python3
-import os, re, sys, json, argparse, tempfile, datetime, requests
+"""
+Nebraska Public Budget Dashboard — Automated Data Scraper
+==========================================================
+"""
+
+import os
+import re
+import sys
+import json
+import argparse
+import tempfile
+import datetime
+import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+# Browser-like User-Agent to prevent 403 Forbidden errors
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0.0.0 Safari/537.36"
+)
 
-# --- STEP 1: SMART URL FINDER ---
+# ─────────────────────────────────────────────
+# URL TEMPLATES & TARGETS
+# ─────────────────────────────────────────────
+
+REVENUE_RELEASE_URL = (
+    "https://revenue.nebraska.gov/sites/default/files/doc/news-release/gen-fund/"
+    "{year}/General_Fund_Receipts_News_Release_{month_name}_{year}_Final_Copy.pdf"
+)
+
+GF_STATUS_URL = "https://nebraskalegislature.gov/FloorDocs/Current/PDF/Budget/status.pdf"
+LEG_BUDGET_URL_TEMPLATE = "https://nebraskalegislature.gov/pdf/reports/fiscal/{year}budget.pdf"
+LFO_DIRECTORY_VOL1_URL = "https://nebraskalegislature.gov/pdf/reports/fiscal/funddescriptions1_{year}.pdf"
+LFO_DIRECTORY_VOL2_URL = "https://nebraskalegislature.gov/pdf/reports/fiscal/funddescriptions2_{year}.pdf"
+
+# ─────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────
+
+def download_file(url, dest_path):
+    try:
+        resp = requests.get(url, headers={'User-Agent': USER_AGENT}, timeout=30)
+        if resp.status_code == 200:
+            with open(dest_path, 'wb') as f:
+                f.write(resp.content)
+            return True
+        return False
+    except:
+        return False
+
+def get_target_month(month_str=None):
+    if month_str:
+        dt = datetime.datetime.strptime(month_str, "%Y-%m")
+    else:
+        today = datetime.datetime.today()
+        first_of_month = today.replace(day=1)
+        dt = first_of_month - datetime.timedelta(days=1)
+    return dt.year, dt.month, dt.strftime("%B")
+
+# ─────────────────────────────────────────────
+# STEP 1: FETCHERS
+# ─────────────────────────────────────────────
+
 def get_latest_oip_url():
     now = datetime.datetime.now()
     for i in range(1, 4):
         target_date = now - datetime.timedelta(days=30 * i)
-        fiscal_month = target_date.month - 6 if target_date.month >= 7 else target_date.month + 6
-        url = f"https://das.nebraska.gov/accounting/docs/NE_DAS_Accounting-Operating_Investment_Pool_OIP_Report_{target_date.year}-{fiscal_month:02d}.xlsx"
-        if requests.head(url, headers={'User-Agent': USER_AGENT}).status_code == 200:
-            return url, target_date.strftime('%m/%d/%Y')
+        cal_month = target_date.month
+        cal_year = target_date.year
+        fiscal_month = cal_month - 6 if cal_month >= 7 else cal_month + 6
+        fm_str = f"{fiscal_month:02d}"
+        url = f"https://das.nebraska.gov/accounting/docs/NE_DAS_Accounting-Operating_Investment_Pool_OIP_Report_{cal_year}-{fm_str}.xlsx"
+        try:
+            if requests.head(url, headers={'User-Agent': USER_AGENT}, timeout=5).status_code == 200:
+                return url, target_date.strftime('%m/%d/%Y')
+        except: continue
     return None, "Unknown"
 
 def fetch_oip(work_dir):
     url, date_str = get_latest_oip_url()
+    if not url: return None, "Unknown"
     path = os.path.join(work_dir, "oip.xlsx")
-    resp = requests.get(url, headers={'User-Agent': USER_AGENT})
-    with open(path, 'wb') as f: f.write(resp.content)
-    return path, date_str
+    if download_file(url, path): return path, date_str
+    return None, "Unknown"
 
-# --- STEP 2: PDF PARSERS ---
-def parse_gf_status_pdf(work_dir):
-    import subprocess
-    url = "https://nebraskalegislature.gov/FloorDocs/Current/PDF/Budget/status.pdf"
+def fetch_gf_status(work_dir):
     path = os.path.join(work_dir, "status.pdf")
-    resp = requests.get(url)
-    with open(path, 'wb') as f: f.write(resp.content)
-    
-    # Use pdftotext (standard on GitHub Actions) to extract numbers
-    text = subprocess.run(['pdftotext', '-layout', path, '-'], capture_output=True, text=True).stdout
-    res = {}
-    patterns = {
-        'netRevenues_FY2526': r'Net Receipts.*?([\d,]+)',
-        'appropriations_FY2526': r'Total Appropriations.*?([\d,]+)',
-        'beginningBalance_FY2526': r'Beginning Balance.*?([\d,]+)',
-        'endingBalance_FY2526': r'Ending Balance.*?\$?\s*([\d,]+)',
-        'minimumReserve_variance': r'Variance from 3% Reserve.*?\(([\d,]+)\)',
-        'cashReserve_endingBalance': r'Cash Reserve Fund Ending Balance.*?([\d,]+)'
-    }
-    for k, p in patterns.items():
-        m = re.search(p, text, re.I)
-        if m:
-            val = int(m.group(1).replace(',', ''))
-            if '(' in m.group(0): val = -val
-            res[k] = val
-    return res
+    return path if download_file(GF_STATUS_URL, path) else None
 
-def parse_oip(path):
+def fetch_biennial_budget(year, work_dir):
+    url = LEG_BUDGET_URL_TEMPLATE.format(year=year)
+    path = os.path.join(work_dir, f"budget_{year}.pdf")
+    return path if download_file(url, path) else None
+
+def fetch_lfo_directory(year, work_dir):
+    paths = []
+    for template, name in [(LFO_DIRECTORY_VOL1_URL, "vol1"), (LFO_DIRECTORY_VOL2_URL, "vol2")]:
+        url = template.format(year=year)
+        path = os.path.join(work_dir, f"lfo_{name}_{year}.pdf")
+        if download_file(url, path): paths.append(path)
+    return paths
+
+# ─────────────────────────────────────────────
+# STEP 2: PARSERS
+# ─────────────────────────────────────────────
+
+def parse_oip_for_dashboard(xlsx_path):
     import openpyxl
-    wb = openpyxl.load_workbook(path, data_only=True)
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb.active
     funds = []
-    total_bal, total_int, active_count = 0, 0, 0
+    total_bal, active_count = 0, 0
     for row in ws.iter_rows(min_row=8, values_only=True):
         if not row[1] or not isinstance(row[1], (int, float)): continue
-        bal = row[4] or 0
+        bal = row[4] if isinstance(row[4], (int, float)) else 0
         total_bal += bal
         if bal > 0: active_count += 1
-        funds.append({'id': str(int(row[1])), 'balance': bal, 'interest': row[6] or 0})
-    return {'macro': {'totalBalance': total_bal, 'totalInterest': 0, 'activeFunds': active_count, 'effectiveYield': '3.08%'}, 'funds': funds}
+        funds.append({'id': str(int(row[1])), 'title': row[3], 'balance': bal, 'interest': row[6] or 0})
+    return {'macro': {'totalBalance': total_bal, 'activeFunds': active_count, 'effectiveYield': '3.08%'}, 'funds': funds}
 
-# --- STEP 3: UPLOAD ---
+def parse_gf_status_pdf(pdf_path):
+    import subprocess
+    if not pdf_path: return {}
+    try:
+        text = subprocess.run(['pdftotext', '-layout', pdf_path, '-'], capture_output=True, text=True).stdout
+        res = {}
+        patterns = {
+            'netRevenues_FY2526': r'Net Receipts.*?([\d,]+)',
+            'appropriations_FY2526': r'Total Appropriations.*?([\d,]+)',
+            'beginningBalance_FY2526': r'Beginning Balance.*?([\d,]+)',
+            'endingBalance_FY2526': r'Ending Balance.*?\$?\s*([\d,]+)',
+            'minimumReserve_variance': r'Variance from 3% Reserve.*?\(([\d,]+)\)',
+            'cashReserve_endingBalance': r'Cash Reserve Fund Ending Balance.*?([\d,]+)'
+        }
+        for k, p in patterns.items():
+            m = re.search(p, text, re.I)
+            if m:
+                val = int(m.group(1).replace(',', ''))
+                if '(' in m.group(0): val = -val
+                res[k] = val
+        return res
+    except: return {}
+
+def parse_biennial_budget_agencies(pdf_path):
+    import subprocess
+    if not pdf_path: return []
+    try:
+        text = subprocess.run(['pdftotext', '-layout', pdf_path, '-'], capture_output=True, text=True).stdout
+        agencies = []
+        pattern = re.compile(r'^\s*#(\d{2,3})\s+([A-Za-z\s&,./\-]+?)\s+(?:Oper|Aid|Const|Total)\s+([\d,()]+)', re.M)
+        for match in pattern.finditer(text):
+            val = int(match.group(3).replace(',', '').replace('(', '-').replace(')', ''))
+            agencies.append({'id': match.group(1), 'name': match.group(2).strip(), 'appropriation': val})
+        return agencies
+    except: return []
+
+def parse_lfo_directory(pdf_paths):
+    import subprocess
+    if not pdf_paths: return {}
+    descriptions = {}
+    for path in pdf_paths:
+        try:
+            text = subprocess.run(['pdftotext', '-layout', path, '-'], capture_output=True, text=True).stdout
+            for page in text.split('\f'):
+                fund_m = re.search(r'FUND\s+(\d{5}):\s+(.+?)(?:\n|$)', page)
+                if fund_m:
+                    fid = fund_m.group(1)
+                    desc_m = re.search(r'PERMITTED USES:\s*(.+?)(?=\n\s*FUND SUMMARY|\Z)', page, re.S)
+                    stat_m = re.search(r'STATUTORY AUTHORITY:\s*(.+?)(?=\n\s*REVENUE|\Z)', page, re.S)
+                    descriptions[fid] = {
+                        'title': fund_m.group(2).strip(),
+                        'description': re.sub(r'\s+', ' ', desc_m.group(1)).strip() if desc_m else "",
+                        'statutory_authority': re.sub(r'\s+', ' ', stat_m.group(1)).strip() if stat_m else ""
+                    }
+        except: continue
+    return descriptions
+
+# ─────────────────────────────────────────────
+# STEP 3: ASSEMBLE & UPLOAD
+# ─────────────────────────────────────────────
+
 def push_to_sheet(data, sheet_id):
     creds = service_account.Credentials.from_service_account_file('credentials.json', scopes=['https://www.googleapis.com/auth/spreadsheets'])
     service = build('sheets', 'v4', credentials=creds)
-    json_str = json.dumps(data, separators=(',', ':'))
+    json_str = json.dumps(data, separators=(',', ':'), default=str)
     chunks = [json_str[i:i+40000] for i in range(0, len(json_str), 40000)]
     service.spreadsheets().values().clear(spreadsheetId=sheet_id, range='Sheet1').execute()
     service.spreadsheets().values().update(spreadsheetId=sheet_id, range='Sheet1!A1', valueInputOption='RAW', body={'values': [[c] for c in chunks]}).execute()
@@ -78,18 +195,34 @@ def main():
     parser.add_argument('--sheet-id', required=True)
     args = parser.parse_args()
     work_dir = tempfile.mkdtemp()
-    
+
+    print("Step 1: Fetching OIP...")
     oip_path, date_str = fetch_oip(work_dir)
-    oip_data = parse_oip(oip_path)
-    gf_data = parse_gf_status_pdf(work_dir)
     
+    print("Step 2: Fetching Budget/LFO Reports...")
+    year, _, _ = get_target_month()
+    status_path = fetch_gf_status(work_dir)
+    budget_path = fetch_biennial_budget(year if year % 2 != 0 else year-1, work_dir)
+    lfo_paths = fetch_lfo_directory(year if year % 2 != 0 else year-1, work_dir)
+
+    print("Step 3: Parsing Data...")
+    oip_data = parse_oip_for_dashboard(oip_path) if oip_path else {'funds':[], 'macro':{}}
+    gf_data = parse_gf_status_pdf(status_path)
+    agency_data = parse_biennial_budget_agencies(budget_path)
+    lfo_data = parse_lfo_directory(lfo_paths)
+
     dashboard = {
         'lastUpdated': {'cash': date_str, 'budget': 'March 2026'},
         'macro': oip_data['macro'],
         'funds': oip_data['funds'],
-        'generalFundStatus': gf_data
+        'generalFundStatus': gf_data,
+        'agencies': agency_data,
+        'fundDescriptions': lfo_data
     }
-    push_to_sheet(dashboard, args.sheet_id)
-    print("✅ Scrape Complete.")
 
-if __name__ == "__main__": main()
+    print("Step 4: Uploading...")
+    push_to_sheet(dashboard, args.sheet_id)
+    print(f"✅ Scrape Complete. Data Period: {date_str}")
+
+if __name__ == "__main__":
+    main()
