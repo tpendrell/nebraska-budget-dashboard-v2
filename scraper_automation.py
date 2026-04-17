@@ -1,3 +1,5 @@
+Replace the entire contents of `scraper_automation.py` with this exact file. Do not include any ``` lines before or after it.
+
 ```python
 #!/usr/bin/env python3
 """
@@ -315,6 +317,7 @@ def main():
     parser.add_argument("--sheet-id", required=True)
     parser.add_argument("--sheet-name", default="Sheet1")
     parser.add_argument("--credentials-path", default="credentials.json")
+    parser.add_argument("--month", default=None)
     args = parser.parse_args()
 
     work_dir = tempfile.mkdtemp()
@@ -323,7 +326,7 @@ def main():
     oip_path, date_str = fetch_oip(work_dir)
 
     print("Step 2: Fetching Budget/LFO Reports...")
-    year, _, _ = get_target_month()
+    year, _, _ = get_target_month(args.month)
     budget_year = year if year % 2 != 0 else year - 1
 
     status_path = fetch_gf_status(work_dir)
@@ -361,4 +364,5 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
 
