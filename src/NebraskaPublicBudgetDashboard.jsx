@@ -38,7 +38,7 @@ const TABS = [
 const NE_POP = 1970000;
 
 // Your Google Apps Script URL
-const DATA_URL = 'https://script.google.com/macros/s/AKfycbyyu3434Z9flpBmaCxjEYij2V2ilmJCwmw9nEPtpRavjuA3JVWeP3I28YBzOa8k7oD5/exec';
+const DATA_URL = 'https://script.google.com/macros/s/AKfycbxdhapah1CYnlo6GBH3vpstAxJx8JRzxenkDc45t_4qa5W306HY1m_Ft841nwHJs_x1/exec';
 
 /* ═══════════════════ FORMATTERS ═══════════════════ */
 
@@ -108,18 +108,17 @@ function normalizeData(raw) {
     });
   });
 
-  // Pass 2: merge LFO descriptions — fill missing fields on existing funds,
-  // add dormant-only entries for IDs not already seen.
+  // Pass 2: merge LFO descriptions
   Object.entries(fd).forEach(([id, desc]) => {
     const sId = String(id);
     if (seen.has(sId)) {
-      // Fund already present — backfill any missing description fields.
       const existing = seen.get(sId);
+      // ALWAYS overwrite the generic OIP title with the rich LFO title
+      if (desc.title) existing.title = desc.title;
       if (!existing.description && desc.description) existing.description = desc.description;
       if (!existing.statutory_authority && desc.statutory_authority) existing.statutory_authority = desc.statutory_authority;
       if (!existing.agency_name && desc.agency_name) existing.agency_name = desc.agency_name;
       if (!existing.program && desc.program) existing.program = desc.program;
-      if (!existing.title && desc.title) existing.title = desc.title;
       if (existing.ending_balance == null && desc.ending_balance != null) existing.ending_balance = desc.ending_balance;
     } else {
       // Dormant-only fund — add with zero balance
@@ -208,9 +207,7 @@ function useDebounce(value, delay = 150) {
   return debounced;
 }
 
-/* ═══════════════════ WATERFALL (FIXED) ═══════════════════ */
-// Horizontal bars side-by-side — renders reliably at any scale.
-// The stacked-bar waterfall crashed when ending balance was small relative to flows.
+/* ═══════════════════ WATERFALL ═══════════════════ */
 
 function WaterfallChart({ beginBal, revenues, transfers, appropriations, endBal }) {
   const steps = [
@@ -221,7 +218,6 @@ function WaterfallChart({ beginBal, revenues, transfers, appropriations, endBal 
     { name: 'Ending\nBalance', val: endBal, color: endBal >= 0 ? C.navy : C.red, sign: endBal >= 0 ? 1 : -1 },
   ];
 
-  // Render each as positive magnitude with color telling direction
   const data = steps.map((s) => ({
     name: s.name,
     value: Math.abs(Number(s.val) || 0) / 1e9,
@@ -229,7 +225,6 @@ function WaterfallChart({ beginBal, revenues, transfers, appropriations, endBal 
     sign: s.sign,
   }));
 
-  // Multi-line tick renderer so "Beginning\nBalance" actually wraps
   const MultiLineTick = ({ x, y, payload }) => {
     const lines = String(payload.value).split('\n');
     return (
@@ -417,7 +412,6 @@ function GFStatusTab({ data }) {
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}><AlertTriangle style={{ width: 18, height: 18, color: '#DC2626', marginTop: 2, flexShrink: 0 }} /><div style={{ fontSize: 13, color: '#7F1D1D', lineHeight: 1.7 }}>Current biennium: <strong>{fmt(Math.abs(st.minimumReserve_variance))} below</strong> the 3% minimum reserve.{st.minimumReserve_variance_2829 && st.minimumReserve_variance_2829 < 0 && <> Following biennium: <strong>{fmt(Math.abs(st.minimumReserve_variance_2829))} shortfall</strong> projected.</>}</div></div>
     </div>}
 
-    {/* Waterfall — only render if we have enough data to build it */}
     {(st.beginningBalance_FY2526 || st.netRevenues_FY2526 || st.endingBalance_FY2526) ? <div style={panel}>
       <div style={{ fontWeight: 800, color: C.navy, marginBottom: 4 }}>FY2025-26 General Fund flow</div>
       <div style={{ fontSize: 12, color: C.s500, marginBottom: 14 }}>How money moves through the General Fund this fiscal year</div>
@@ -616,14 +610,12 @@ export default function NebraskaBudgetDashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Cache-busting query param + no-store so each load gets fresh data
         const url = `${DATA_URL}?t=${Date.now()}`;
         const response = await fetch(url, { cache: 'no-store' });
         if (!response.ok) throw new Error(`Fetch failed: HTTP ${response.status}`);
 
         const raw = await response.json();
 
-        // Debug shape snapshot — visible in browser DevTools console
         const shape = {
           topLevelKeys: Object.keys(raw || {}),
           fundsCount: (raw?.funds || []).length,
