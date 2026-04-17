@@ -622,7 +622,33 @@ function ReferenceTab() {
 /* ═══════════════════ APP SHELL + HASH ROUTING ═══════════════════ */
 
 export default function NebraskaBudgetDashboard() {
-  const data = useMemo(() => normalizeData(rawData), []);
+  // 1. Set up state for our live data, loading status, and errors
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // 2. Fetch the data from Google Sheets when the dashboard loads
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // PASTE YOUR GOOGLE APPS SCRIPT WEB APP URL HERE:
+        const response = await fetch('https://script.google.com/macros/s/AKfycbzFrdyi8OkoSIC2zDrmIqHzbuWOL4zwUN9SXDE6_Leg4JnNcu5Wmi3qqFdkTC-GWIhP/exec');
+        
+        if (!response.ok) throw new Error('Failed to fetch budget data');
+        
+        const jsonData = await response.json();
+        // Normalize the live data using your existing helper function
+        setData(normalizeData(jsonData)); 
+      } catch (err) {
+        console.error(err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   // Hash routing: #tab or #tab/fundId
   const parseHash = () => {
@@ -653,6 +679,30 @@ export default function NebraskaBudgetDashboard() {
     window.history.replaceState(null, '', id ? `#funds/${id}` : '#funds');
   }, []);
 
+  // Show a loading screen while fetching
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: C.s50, color: C.navy, fontFamily: 'Inter, sans-serif' }}>
+        <div style={{ textAlign: 'center' }}>
+          <Landmark style={{ width: 48, height: 48, color: C.gold, marginBottom: 16 }} />
+          <h2>Loading Nebraska Budget Data...</h2>
+        </div>
+      </div>
+    );
+  }
+
+  // Show an error screen if the fetch fails
+  if (error) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: C.s50, color: C.red, fontFamily: 'Inter, sans-serif' }}>
+        <div style={{ textAlign: 'center' }}>
+          <h2>Data Sync Error</h2>
+          <p>{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: C.s50, color: C.s800, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif' }}>
       <style>{`
@@ -674,8 +724,8 @@ export default function NebraskaBudgetDashboard() {
             <div><div style={{ fontSize: 20, fontWeight: 900 }}>Nebraska Public Budget Dashboard</div><div style={{ fontSize: 11, color: C.goldLight, letterSpacing: 2, textTransform: 'uppercase', marginTop: 2 }}>Cash pool · Revenue · Appropriations · Fund accountability</div></div>
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,.68)', lineHeight: 1.7 }}>
-            <div>Cash: <span style={{ color: '#fff' }}>{data.lastUpdated?.cash}</span></div>
-            <div>Budget: <span style={{ color: '#fff' }}>{data.lastUpdated?.budget}</span></div>
+            <div>Cash: <span style={{ color: '#fff' }}>{data.lastUpdated?.cash || 'Unknown'}</span></div>
+            <div>Budget: <span style={{ color: '#fff' }}>{data.lastUpdated?.budget || 'Unknown'}</span></div>
             {data.lastUpdated?.nefab && <div>NEFAB: <span style={{ color: '#fff' }}>{data.lastUpdated.nefab}</span></div>}
           </div>
         </div>
