@@ -185,7 +185,6 @@ def parse_gf_status_pdf(pdf_path):
 
         res = {}
         
-        # Initialize the 5-column dictionary to hold all the years
         td = {
             "Beginning Balance": {"fy2425": 0, "fy2526": 0, "fy2627": 0, "fy2728": 0, "fy2829": 0},
             "Net Receipts": {"fy2425": 0, "fy2526": 0, "fy2627": 0, "fy2728": 0, "fy2829": 0},
@@ -194,7 +193,6 @@ def parse_gf_status_pdf(pdf_path):
         }
 
         def extract_numbers(line):
-            # Matches large numbers with commas, ignoring tiny numbers like '26'
             matches = re.findall(r'(\([\d,]{4,}\)|[\d,]{4,})', line)
             out = []
             for m in matches:
@@ -212,7 +210,6 @@ def parse_gf_status_pdf(pdf_path):
             if len(nums) >= 2:
                 row_key = None
                 
-                # Dynamically identify the row regardless of exact text
                 if "Beginning Balance" in clean_line and "FY" not in clean_line:
                     row_key = "Beginning Balance"
                 elif "Net Receipts" in clean_line and "Total" not in clean_line:
@@ -223,24 +220,20 @@ def parse_gf_status_pdf(pdf_path):
                     row_key = "Ending Balance"
                     
                 if row_key:
-                    # Apply all 5 columns!
                     td[row_key]["fy2425"] = nums[0] if len(nums) > 0 else 0
                     td[row_key]["fy2526"] = nums[1] if len(nums) > 1 else 0
                     td[row_key]["fy2627"] = nums[2] if len(nums) > 2 else 0
                     td[row_key]["fy2728"] = nums[3] if len(nums) > 3 else 0
                     td[row_key]["fy2829"] = nums[4] if len(nums) > 4 else 0
 
-            # Standalone metrics for the overview cards
             if "Variance from" in clean_line and "Reserve" in clean_line and len(nums) >= 2:
                 res["minimumReserve_variance"] = nums[1]
 
-        # Populate the top-level status dict for the Metric Cards
         res["beginningBalance_FY2526"] = td["Beginning Balance"]["fy2526"]
         res["netRevenues_FY2526"] = td["Net Receipts"]["fy2526"]
         res["appropriations_FY2526"] = td["Total Appropriations"]["fy2526"]
         res["endingBalance_FY2526"] = td["Ending Balance"]["fy2526"]
 
-        # Flatten into the array the React table expects
         table = [
             {"label": "Beginning Balance", **td["Beginning Balance"]},
             {"label": "Net Receipts", **td["Net Receipts"]},
@@ -282,7 +275,6 @@ def parse_revenue_pdf(pdf_path, fallback_total):
         except Exception:
             pass
 
-    # SMART FALLBACK: If parsing failed, build realistic data based on the GF total
     if rev["ytdActual"] == 0 and fallback_total > 0:
         rev["ytdActual"] = fallback_total
         rev["ytdForecast"] = int(fallback_total * 0.98)
@@ -330,58 +322,54 @@ def parse_biennial_budget_agencies(pdf_path):
             text=True,
         ).stdout
 
-        # Split the text so we don't mix General Funds (Table 12) with Cash Funds (Table 19)
-        gf_start = text.find('Table 12')
-        cf_start = text.find('Table 19')
-        if gf_start == -1: gf_start = text.find('General Fund Appropriation Adjustments')
-        if cf_start == -1: cf_start = text.find('Cash Fund Appropriation Adjustments')
-
-        gf_text = text[gf_start:cf_start] if gf_start != -1 and cf_start != -1 else text
-        cf_text = text[cf_start:] if cf_start != -1 else ""
-
-        def extract_agencies(section_text):
-            agencies = {}
-            # Captures ID, Name, Row Type (Oper/Aid/Const/Total), and the dollar amount
-            pattern = re.compile(
-                r"^\s*#(\d{2,3})\s+([A-Za-z\s&,./\-]+?)\s+(Oper|Aid|Const|Total)\s+([\d,()]+)",
-                re.M,
-            )
-            for match in pattern.finditer(section_text):
-                row_type = match.group(3)
-                
-                # CRITICAL FIX: Skip the 'Total' row so we don't double count!
-                if row_type == "Total":
-                    continue 
-
-                aid = match.group(1)
-                name = match.group(2).strip()
-                val_str = match.group(4).replace(",", "").replace("(", "-").replace(")", "")
-                val = int(val_str)
-
-                if aid not in agencies:
-                    agencies[aid] = {"id": aid, "name": name, "amount": 0}
-                agencies[aid]["amount"] += val
-                
-            return agencies
-
-        gf_dict = extract_agencies(gf_text)
-        cf_dict = extract_agencies(cf_text)
-
-        # Merge the GF and CF dictionaries into the final array
-        final_agencies = []
-        all_ids = set(gf_dict.keys()).union(set(cf_dict.keys()))
+        agencies = {}
         
-        for aid in all_ids:
-            name = gf_dict.get(aid, {}).get("name") or cf_dict.get(aid, {}).get("name", f"Agency {aid}")
-            gf_amt = gf_dict.get(aid, {}).get("amount", 0)
-            cf_amt = cf_dict.get(aid, {}).get("amount", 0)
+        # Matches lines like: "  25 Health & Human Services    Oper    1,000,000"
+        # The (Oper|Aid|Const) intentionally omits "Total" to block double counting
+        pattern = re.compile(
+            r"^\s*#?(\d{2,3})\s+([A-Za-z\s&,./\-]+?)\s+(Oper|Aid|Const)\s+([\d,()]+)",
+            re.M,
+        )
+
+        for match in pattern.finditer(text):
+            aid = match.group(1)
+            name = match.group(2).strip()
+            row_type = match.group(3)
+            val_str = match.group(4).replace(",", "").replace("(", "-").replace(")", "")
+            val = int(val_str)
+
+            if aid not in agencies:
+                agencies[aid] = {
+                    "name": name, 
+                    "gf_total": 0, 
+                    "cf_total": 0, 
+                    "_seen": []
+                }
+
+            # Count how many times we've seen Oper or Aid for this agency
+            seen_count = agencies[aid]["_seen"].count(row_type)
             
-            final_agencies.append({
-                "id": aid,
-                "name": name,
-                "appropriation": gf_amt,   # This maps to the GF blue bar
-                "cash_fund": cf_amt        # This maps to the CF gold bar
-            })
+            # 1st time seeing it -> We are in the General Fund table
+            if seen_count == 0:
+                agencies[aid]["gf_total"] += val
+            # 2nd time seeing it -> We are in the Cash Fund table
+            elif seen_count == 1:
+                agencies[aid]["cf_total"] += val
+            # 3rd+ time -> Ignore (Federal / Total blocks)
+            
+            agencies[aid]["_seen"].append(row_type)
+
+        final_agencies = []
+        for aid, data in agencies.items():
+            gf = data["gf_total"]
+            cf = data["cf_total"]
+            if gf != 0 or cf != 0:
+                final_agencies.append({
+                    "id": aid,
+                    "name": data["name"],
+                    "appropriation": gf,
+                    "cash_fund": cf
+                })
 
         return final_agencies
     except Exception as e:
