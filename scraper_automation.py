@@ -376,10 +376,15 @@ def parse_gf_status_pdf(pdf_paths):
             "minimumReserve_variance_FY2829": variance_fy2829,
         }
 
-        # SANITY CHECKS — fail loud if output looks like Cash Reserve data
+        # SANITY CHECKS — reject bad data and fall through to next PDF candidate.
+        # These catch three failure modes observed in production:
+        #   1. Scraper accidentally read Cash Reserve Fund rows
+        #   2. status.pdf has an Appropriations row that didn't match our label
+        #   3. status.pdf has fewer than 5 fiscal-year columns, so the "last 5
+        #      numbers" logic grabbed noise (page numbers, years, footnotes)
         warnings = []
 
-        # Known CRF values to reject against
+        # --- Check 1: Cash Reserve Fund cross-contamination ---
         if abs(status["beginningBalance_FY2526"] - 877_079_779) < 100_000:
             warnings.append(
                 "beginningBalance_FY2526 matches Cash Reserve FY24-25 ending "
@@ -390,17 +395,49 @@ def parse_gf_status_pdf(pdf_paths):
                 "endingBalance_FY2526 matches Cash Reserve FY25-26 ending "
                 "— parser is reading the wrong table"
             )
+
+        # --- Check 2: Reserve variance must be negative (as documented in
+        # every Committee rec since July 2025) ---
         if variance_fy2627 > 0:
             warnings.append(
                 f"minimumReserve_variance is positive ({variance_fy2627:,}) "
-                "— Nebraska has been projected below minimum reserve in every "
-                "Committee recommendation since July 2025; positive variance "
-                "is almost certainly a misread"
+                "— expected negative"
             )
+
+        # --- Check 3: Ending balance in plausible range ---
         if not (100_000_000 <= abs(status["endingBalance_FY2526"]) <= 900_000_000):
             warnings.append(
                 f"endingBalance_FY2526 ({status['endingBalance_FY2526']:,}) "
                 "outside plausible range $100M–$900M"
+            )
+
+        # --- Check 4: Appropriations must be non-zero and in the $5B range ---
+        # Nebraska GF appropriations have been between $5B and $6B every year
+        # since FY22-23. A zero or tiny value means the row didn't parse
+        # (different label format in status.pdf, for example).
+        if status["appropriations_FY2526"] <= 0:
+            warnings.append(
+                f"appropriations_FY2526 is {status['appropriations_FY2526']} "
+                "— Appropriations row failed to parse; this PDF may use a "
+                "different label format"
+            )
+        elif status["appropriations_FY2526"] < 3_000_000_000:
+            warnings.append(
+                f"appropriations_FY2526 ({status['appropriations_FY2526']:,}) "
+                "is under $3B — Nebraska GF appropriations are always in the "
+                "$5B–$6B range, this value looks like a misread"
+            )
+
+        # --- Check 5: FY28-29 ending balance should exist and be plausible ---
+        # The full biennial budget PDF has FY28-29 projections. If we only get
+        # a tiny value like $117M or a phantom year-number like $2,025, the
+        # parser grabbed noise from a 3-column status report.
+        fy2829_end = td["EndingBalance"]["fy2829"]
+        if 0 < fy2829_end < 10_000_000 or (0 < fy2829_end < 3000 and fy2829_end > 2000):
+            warnings.append(
+                f"FY28-29 ending balance ({fy2829_end:,}) looks like noise — "
+                "the PDF may not have FY28-29 columns and the parser grabbed "
+                "year numbers or page numbers"
             )
 
         if warnings:
@@ -828,15 +865,18 @@ def main():
 
     print("Step 2: Fetching Budget/LFO Reports & Revenue...")
     year, _, _ = get_target_month(args.month)
-    budget_year = year if year % 2 != 0 else year - 1
 
     status_path = fetch_gf_status(work_dir)
-    budget_path = fetch_biennial_budget(budget_year, work_dir)
-    # Try the other budget year as fallback in case of off-cycle publication
-    alt_budget_path = None
-    if not budget_path:
-        alt_budget_path = fetch_biennial_budget(budget_year + 1, work_dir)
-    effective_budget = budget_path or alt_budget_path
+    # Always try the current year's biennial budget PDF first — that's the most
+    # recent authoritative snapshot. Fall back to previous year if not yet
+    # published (e.g., early in the calendar year before spring release).
+    # The legislature publishes a new biennial budget report each year: the
+    # 2026 report reflects the 2026 Appropriations Committee Recommendation
+    # and is the source of truth for post-March-2026 data.
+    effective_budget = (
+        fetch_biennial_budget(year, work_dir)
+        or fetch_biennial_budget(year - 1, work_dir)
+    )
 
     lfo_paths = fetch_lfo_directory(work_dir)
     rev_path, rev_period = fetch_revenue_release(work_dir)
