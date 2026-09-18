@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-21T15:21:58Z",
+  "generatedAt": "2026-09-18T17:56:23Z",
   "lastUpdated": {
     "cash": "July 2026",
     "budget": "Current General Fund Status",
-    "revenue": "July 2026"
+    "revenue": "August 2026"
   },
   "sources": {
     "cashPool": {
@@ -19,8 +19,8 @@
     },
     "revenue": {
       "name": "Nebraska Department of Revenue General Fund Receipts",
-      "url": "https://revenue.nebraska.gov/sites/default/files/doc/news-release/gen-fund/2026/General_Fund_Receipts_News_Release_July_2026_Final_Copy.pdf",
-      "period": "July 2026"
+      "url": "https://revenue.nebraska.gov/sites/default/files/doc/news-release/gen-fund/2026/General_Fund_Receipts_News_Release_August_2026_Final_Copy.pdf",
+      "period": "August 2026"
     },
     "agencies": {
       "name": "Nebraska State Spending Current Fiscal Year Budget",
@@ -33598,29 +33598,29 @@
     }
   ],
   "revenue": {
-    "period": "July 2026",
-    "ytdActual": 373255035,
-    "ytdForecast": 373657000,
+    "period": "August 2026",
+    "ytdActual": 1026249469,
+    "ytdForecast": 1019026000,
     "categories": [
       {
         "name": "Sales & Use",
-        "actual": 256910556,
-        "forecast": 231325000
+        "actual": 510750668,
+        "forecast": 450081000
       },
       {
         "name": "Individual Income",
-        "actual": 84104984,
-        "forecast": 101764000
+        "actual": 445815606,
+        "forecast": 473545000
       },
       {
         "name": "Corporate Income",
-        "actual": 13063554,
-        "forecast": 21963000
+        "actual": 21922942,
+        "forecast": 37125000
       },
       {
         "name": "Miscellaneous",
-        "actual": 19175941,
-        "forecast": 18605000
+        "actual": 47760254,
+        "forecast": 58275000
       }
     ],
     "monthlySeries": [
@@ -33631,7 +33631,7 @@
       },
       {
         "month": "August",
-        "actual": null,
+        "actual": 652994434,
         "forecast": 645369000
       },
       {
