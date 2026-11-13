@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-16T18:29:31Z",
+  "generatedAt": "2026-11-13T21:03:23Z",
   "lastUpdated": {
     "cash": "September 2026",
     "budget": "Current General Fund Status",
-    "revenue": "September 2026"
+    "revenue": "October 2026"
   },
   "sources": {
     "cashPool": {
@@ -19,8 +19,8 @@
     },
     "revenue": {
       "name": "Nebraska Department of Revenue General Fund Receipts",
-      "url": "https://revenue.nebraska.gov/sites/default/files/doc/news-release/gen-fund/2026/General_Fund_Receipts_News_Release_September_2026_Final_Copy.pdf",
-      "period": "September 2026"
+      "url": "https://revenue.nebraska.gov/sites/default/files/doc/news-release/gen-fund/2026/General_Fund_Receipts_News_Release_October_2026_Final_Copy.pdf",
+      "period": "October 2026"
     },
     "agencies": {
       "name": "Nebraska State Spending Current Fiscal Year Budget",
@@ -51970,29 +51970,29 @@
     }
   ],
   "revenue": {
-    "period": "September 2026",
-    "ytdActual": 1709404726,
-    "ytdForecast": 1700958000,
+    "period": "October 2026",
+    "ytdActual": 328511655,
+    "ytdForecast": 2037916381,
     "categories": [
       {
         "name": "Sales & Use",
-        "actual": 743315060,
-        "forecast": 654311000
+        "actual": 261395845,
+        "forecast": 1004710905
       },
       {
         "name": "Individual Income",
-        "actual": 724700193,
-        "forecast": 807292000
+        "actual": 38345666,
+        "forecast": 763045859
       },
       {
         "name": "Corporate Income",
-        "actual": 150605799,
-        "forecast": 158554000
+        "actual": 12808238,
+        "forecast": 163414038
       },
       {
         "name": "Miscellaneous",
-        "actual": 90783674,
-        "forecast": 80801000
+        "actual": 15961905,
+        "forecast": 106745579
       }
     ],
     "monthlySeries": [
@@ -52013,8 +52013,8 @@
       },
       {
         "month": "October",
-        "actual": null,
-        "forecast": 349236000
+        "actual": 328511655,
+        "forecast": 2037916381
       },
       {
         "month": "November",
@@ -52057,7 +52057,7 @@
         "forecast": 568515000
       }
     ],
-    "nefabBasis": "February 27, 2026",
+    "nefabBasis": "October 30, 2026",
     "nefabForecasts": [],
     "fiscalYear": "FY2026-27",
     "monthlyForecast": {
